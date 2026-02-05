@@ -324,14 +324,26 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Run once and exit")
     args = parser.parse_args()
     
-    # Create and run detector
-    detector = AudioStreamDetector(args.config)
+    print(f"Audio Stream Detection Daemon starting...")
+    print(f"Config file: {args.config or 'default'}")
+    print(f"Dry run: {args.dry_run}")
     
-    if args.dry_run:
-        print("Dry run - detecting streams once...")
-        detector.detect_and_notify()
-    else:
-        detector.run_forever()
+    # Create and run detector
+    try:
+        detector = AudioStreamDetector(args.config)
+        print(f"Detector initialized successfully")
+        
+        if args.dry_run:
+            print("Dry run - detecting streams once...")
+            detector.detect_and_notify()
+        else:
+            print("Starting detection loop...")
+            detector.run_forever()
+    except Exception as e:
+        print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

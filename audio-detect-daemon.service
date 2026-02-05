@@ -21,7 +21,7 @@ Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus"
 WorkingDirectory=%h/.local/share/audio-detect
 
 # Command
-ExecStart=uvx --from git+https://github.com/ChristianGeng/audio-capture.git audio-detect-daemon
+ExecStart=/usr/bin/env -i PATH=/home/%i/.local/bin:/usr/local/bin:/usr/bin:/bin HOME=/home/%i XDG_RUNTIME_DIR=/run/user/%U PULSE_RUNTIME_PATH=/run/user/%U/pulse PULSE_SERVER=unix:/run/user/%U/pulse/native DISPLAY=:0 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus /home/%i/.local/bin/uvx --from git+https://github.com/ChristianGeng/audio-capture.git audio-detect-daemon
 
 # Restart policy
 Restart=always
