@@ -2,8 +2,97 @@
 
 Three systems for audio processing on Linux:
 
+## ⭐ System 1: Audio Stream Detection Service (NEW - Recommended)
 
-## ⭐ System 1: Automatic Teams Meeting Recorder (NEW - Recommended)
+**Background monitoring with desktop notifications for Teams, YouTube, and custom patterns.**
+
+### Features
+
+- **Background Monitoring**: Runs as system service, detects audio streams automatically
+- **Desktop Notifications**: Modern notifications with ready-to-use ffmpeg commands
+- **Configurable Patterns**: Teams, YouTube, and custom detection patterns
+- **Non-Invasive**: Never modifies audio routing - read-only monitoring
+- **Clipboard Integration**: Auto-copies ffmpeg commands to clipboard
+- **Home Directory**: All files stored in user home directory (no sudo needed)
+
+### Quick Start
+
+```bash
+# Clone and install
+git clone https://github.com/ChristianGeng/audio-capture.git
+cd audio-capture
+./install-daemon.sh
+
+# Start detection
+audio-detect-service start
+
+# Check status
+audio-detect-service status
+
+# Configure patterns
+audio-detect-service config
+```
+
+### How It Works
+
+1. **Daemon monitors** PulseAudio/PipeWire for audio streams every 2 seconds
+2. **Pattern Matching** against Teams, YouTube, and custom patterns
+3. **Desktop Notification** with ffmpeg command sent when match found
+4. **Auto-Copy** command to clipboard for easy pasting
+5. **Organized Storage** in `~/AudioCaptures/teams/`, `~/AudioCaptures/youtube/`, etc.
+
+### Usage Examples
+
+```bash
+# Start/stop service
+audio-detect-service start
+audio-detect-service stop
+
+# Enable auto-start on login
+audio-detect-service enable
+
+# View logs
+audio-detect-service logs
+
+# Test detection
+audio-detect-service test
+
+# Edit configuration
+audio-detect-service config
+```
+
+### Configuration
+
+Edit `~/.config/audio-detect/config.yaml`:
+
+```yaml
+targets:
+  teams:
+    enabled: true
+    patterns:
+      - "microsoft teams"
+      - "teams.microsoft.com"
+  youtube:
+    enabled: true
+    patterns:
+      - "youtube"
+  custom:
+    enabled: true
+    patterns:
+      - "spotify"
+      - "zoom"
+```
+
+### Installation with UVX
+
+The service uses `uvx` to run directly from the GitHub repository:
+
+```bash
+# System will automatically use the latest version from main branch
+systemctl --user start audio-detect-daemon
+```
+
+## ⭐ System 2: Automatic Teams Meeting Recorder (Legacy)
 
 **Zero-intervention audio recording for Microsoft Teams meetings.**
 
@@ -170,12 +259,12 @@ audio-stream start --chunk-duration 3 --overlap 0.5
 
 | Use Case | Recommended System |
 |----------|--------------------|
-| **Automatic Teams meeting recording** | ⭐ Teams Auto-Recorder (System 1) |
-| **Zero-intervention background recording** | ⭐ Teams Auto-Recorder (System 1) |
-| **Manual Chrome tab capture** with speaker ID | Chrome Tab Diarization (System 2) |
-| **Live meetings** needing real-time transcription | Real-time Streaming (System 3) |
-| **Podcasts/Interviews** from browser | Chrome Tab Diarization (System 2) |
-| **Research interviews** needing attribution | Chrome Tab Diarization (System 2) |
+| **Background monitoring with notifications** | ⭐ Audio Stream Detection Service (System 1) |
+| **Zero-intervention background recording** | ⭐ Teams Auto-Recorder (System 2) |
+| **Manual tab isolation + diarization** | Chrome Tab Diarizer (System 3) |
+| **Live meetings** needing real-time transcription | Real-time Streaming (System 4) |
+| **Podcasts/Interviews** from browser | Chrome Tab Diarization (System 3) |
+| **Research interviews** needing attribution | Chrome Tab Diarization (System 3) |
 
 
 ## Common Issues

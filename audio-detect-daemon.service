@@ -21,7 +21,7 @@ Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus"
 WorkingDirectory=%h/.local/share/audio-detect
 
 # Command
-ExecStart=/usr/bin/python3 /home/cgeng/work/myfiles/audio-capture/audio_detect_daemon.py
+ExecStart=uvx --from git+https://github.com/ChristianGeng/audio-capture.git audio-detect-daemon
 
 # Restart policy
 Restart=always
