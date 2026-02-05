@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Environment
+.env
+.env.local
+
+# Audio files
+*.wav
+*.mp3
+*.ogg
+*.flac
+
+# Transcripts
+*.txt
+transcription.txt
+*.transcript.json
+
+# Recordings directory
+/var/log/teams-audio/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Cache
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
