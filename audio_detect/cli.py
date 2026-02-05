@@ -171,29 +171,10 @@ def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg
 )
 def suggest(teams_only: bool, browser: str, detector: str):
     """Show ffmpeg capture commands for active streams."""
-    try:
-        from .detectors import StateDetectorFactory
-    except ImportError:
-        from audio_detect.detectors import StateDetectorFactory
-    
     streams = list_audio_streams(detector_type=detector)
-    state_detector = StateDetectorFactory.create_detector(detector)
-
-    # Apply filters
-    if teams_only:
-        streams = [s for s in streams if s.is_teams]
-
-    if browser != "all":
-        browser_map = {
-            "chrome": "google chrome",
-            "edge": "microsoft edge",
-            "firefox": "firefox"
-        }
-        browser_term = browser_map.get(browser.lower(), browser.lower())
-        streams = [s for s in streams if browser_term.lower() in s.application.lower()]
-
-    # Filter to only actively playing streams
-    active_streams = [s for s in streams if state_detector.is_stream_active(s)]
+    
+    # Simple active filter - just check if state is RUNNING
+    active_streams = [s for s in streams if s.state == 'RUNNING']
 
     if not active_streams:
         if streams:
