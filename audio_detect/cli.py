@@ -3,15 +3,13 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
-from typing import List, Optional
+import time
 
 import click
 from rich.console import Console
 from rich.table import Table
 
 from .core import (
-    AudioStream,
     create_virtual_sink,
     generate_ffmpeg_command,
     has_pactl,
@@ -19,7 +17,6 @@ from .core import (
     list_audio_streams,
     move_sink_input_to_sink,
 )
-
 
 console = Console()
 
@@ -42,6 +39,12 @@ def cli():
     help="Filter by browser"
 )
 @click.option(
+    "--detector",
+    type=click.Choice(["pulse", "browser", "hybrid"], case_sensitive=False),
+    default="pulse",
+    help="State detection method"
+)
+@click.option(
     "--format",
     type=click.Choice(["table", "json"], case_sensitive=False),
     default="table",
@@ -49,29 +52,29 @@ def cli():
 )
 @click.option("--show-ffmpeg", is_flag=True, help="Include ffmpeg commands")
 @click.option("--show-ids", is_flag=True, help="Show sink input IDs")
-def list(teams_only: bool, browser: str, format: str, show_ffmpeg: bool, show_ids: bool):
+def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg: bool, show_ids: bool):
     """List active audio streams."""
-    streams = list_audio_streams()
-    
+    streams = list_audio_streams(detector_type=detector)
+
     # Apply filters
     if teams_only:
         streams = [s for s in streams if s.is_teams]
-    
+
     if browser != "all":
         browser_map = {
             "chrome": "google chrome",
-            "edge": "microsoft edge", 
+            "edge": "microsoft edge",
             "firefox": "firefox"
         }
         browser_term = browser_map.get(browser.lower(), browser.lower())
         streams = [s for s in streams if browser_term in s.application.lower()]
-    
+
     if not streams:
         console.print("[yellow]No matching streams found.[/yellow]")
         return
-    
+
     if format == "json":
-        output = []
+        stream_data = []
         for stream in streams:
             data = {
                 "id": stream.id,
@@ -80,39 +83,76 @@ def list(teams_only: bool, browser: str, format: str, show_ffmpeg: bool, show_id
                 "media": stream.media,
                 "sink": stream.sink_name,
                 "monitor": stream.monitor,
+                "volume": stream.volume,
                 "is_teams": stream.is_teams,
-                "is_browser": stream.is_browser,
-                "is_running": stream.is_running
             }
             if show_ffmpeg:
                 data["ffmpeg"] = generate_ffmpeg_command(stream.monitor)
-            output.append(data)
-        console.print(json.dumps(output, indent=2))
-    else:
-        table = Table(title="Active Audio Streams")
-        table.add_column("ID", justify="right", style="cyan", no_wrap=True)
-        table.add_column("State", style="magenta")
-        table.add_column("Application", style="green")
-        table.add_column("Media", style="blue")
-        table.add_column("Sink", style="yellow")
+            stream_data.append(data)
+        console.print(json.dumps(stream_data, indent=2))
+        return
+
+    # Table format
+    table = Table(title="Active Audio Streams")
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("State", style="green")
+    table.add_column("Application", style="magenta")
+    table.add_column("Media", style="yellow")
+    table.add_column("Sink", style="blue")
+    table.add_column("Volume", style="red")
+    if show_ids:
+        table.add_column("Sink ID", style="dim")
+    if show_ffmpeg:
+        table.add_column("FFmpeg", style="dim", max_width=50)
+    if teams_only or browser != "all":
         table.add_column("Teams?", style="red")
+
+    for stream in streams:
+        state_style = {
+            'RUNNING': 'green',
+            'CORKED': 'yellow',
+            'MUTED': 'red',
+            'IDLE': 'dim'
+        }.get(stream.state, 'white')
+
+        # Add activity info for debugging
+        activity_info = ""
+        if stream.last_activity > 0:
+            seconds_ago = int(time.time() - stream.last_activity)
+            if seconds_ago < 60:
+                activity_info = f" ({seconds_ago}s ago)"
+            else:
+                minutes_ago = seconds_ago // 60
+                activity_info = f" ({minutes_ago}m ago)"
+
+        row = [
+            str(stream.id),
+            f"[{state_style}]{stream.state}[/{state_style}]{activity_info}",
+            stream.application,
+            stream.media,
+            stream.sink_name,  # Show full sink name for copy-paste
+            stream.volume
+        ]
+
+        if show_ids:
+            row.append(stream.sink)
         if show_ffmpeg:
-            table.add_column("FFmpeg Command", style="dim")
-        
-        for stream in streams:
-            row = [
-                str(stream.id) if show_ids else "-",
-                stream.state,
-                stream.application[:20] + "..." if len(stream.application) > 20 else stream.application,
-                stream.media[:30] + "..." if len(stream.media) > 30 else stream.media,
-                stream.sink_name[:25] + "..." if len(stream.sink_name) > 25 else stream.sink_name,
-                "✓" if stream.is_teams else "-"
-            ]
-            if show_ffmpeg:
-                row.append(generate_ffmpeg_command(stream.monitor, "capture.wav"))
-            table.add_row(*row)
-        
-        console.print(table)
+            cmd = generate_ffmpeg_command(stream.monitor)
+            row.append(cmd[:47] + "..." if len(cmd) > 50 else cmd)
+        if teams_only or browser != "all":
+            row.append("✓" if stream.is_teams else "-")
+
+        table.add_row(*row)
+
+    console.print(table)
+    
+    # Add generic ffmpeg example for the first stream
+    if streams and format == "table":
+        first_stream = streams[0]
+        console.print("\n[bold]FFmpeg Example:[/bold]")
+        console.print(f"[dim]# Capture audio from {first_stream.application}[/dim]")
+        console.print(f"[green]ffmpeg -f pulse -i {first_stream.monitor} -ac 1 -ar 16000 capture.wav[/green]")
+        console.print(f"[dim]# Monitor device: {first_stream.monitor}[/dim]")
 
 
 @cli.command()
@@ -123,14 +163,22 @@ def list(teams_only: bool, browser: str, format: str, show_ffmpeg: bool, show_id
     default="all",
     help="Filter by browser"
 )
-def suggest(teams_only: bool, browser: str):
+@click.option(
+    "--detector",
+    type=click.Choice(["pulse", "browser", "hybrid"], case_sensitive=False),
+    default="pulse",
+    help="State detection method"
+)
+def suggest(teams_only: bool, browser: str, detector: str):
     """Show ffmpeg capture commands for active streams."""
-    streams = list_audio_streams()
-    
+    from .detectors import StateDetectorFactory
+    streams = list_audio_streams(detector_type=detector)
+    state_detector = StateDetectorFactory.create_detector(detector)
+
     # Apply filters
     if teams_only:
         streams = [s for s in streams if s.is_teams]
-    
+
     if browser != "all":
         browser_map = {
             "chrome": "google chrome",
@@ -138,16 +186,26 @@ def suggest(teams_only: bool, browser: str):
             "firefox": "firefox"
         }
         browser_term = browser_map.get(browser.lower(), browser.lower())
-        streams = [s for s in streams if browser_term in s.application.lower()]
-    
-    if not streams:
-        console.print("[yellow]No matching streams found.[/yellow]")
+        streams = [s for s in streams if browser_term.lower() in s.application.lower()]
+
+    # Filter to only actively playing streams
+    active_streams = [s for s in streams if state_detector.is_stream_active(s)]
+
+    if not active_streams:
+        if streams:
+            console.print("[yellow]No actively playing streams found.[/yellow]")
+            console.print("[dim]Found streams but they are paused/corked:[/dim]")
+            for stream in streams:
+                console.print(f"  • {stream.application} - {stream.media} ([{stream.state}])")
+        else:
+            console.print("[yellow]No matching streams found.[/yellow]")
         return
-    
-    console.print("[bold green]FFmpeg Capture Commands:[/bold green]\n")
-    
-    for i, stream in enumerate(streams, 1):
+
+    console.print("[bold green]FFmpeg Capture Commands for Active Streams:[/bold green]\n")
+
+    for i, stream in enumerate(active_streams, 1):
         console.print(f"[cyan]{i}.[/cyan] [bold]{stream.application}[/bold] - {stream.media}")
+        console.print(f"   State: [green]{stream.state}[/green] | Volume: [yellow]{stream.volume}[/yellow]")
         console.print(f"   Sink: {stream.sink_name}")
         console.print(f"   Monitor: {stream.monitor}")
         console.print(f"   Teams: {'✓' if stream.is_teams else '-'}")
@@ -167,19 +225,19 @@ def route(sink_input_id: int, virtual_name: str, create_virtual: bool):
     # Verify the sink input exists
     streams = list_audio_streams()
     target_stream = None
-    
+
     for stream in streams:
         if stream.id == sink_input_id:
             target_stream = stream
             break
-    
+
     if not target_stream:
         console.print(f"[red]Error: Sink input {sink_input_id} not found.[/red]")
         console.print("Run 'audio-detect list --show-ids' to see available IDs.")
         sys.exit(1)
-    
+
     console.print(f"[blue]Found stream:[/blue] {target_stream.application} - {target_stream.media}")
-    
+
     # Create virtual sink if needed
     if create_virtual:
         console.print(f"[blue]Creating virtual sink: {virtual_name}[/blue]")
@@ -187,12 +245,12 @@ def route(sink_input_id: int, virtual_name: str, create_virtual: bool):
             console.print(f"[red]Failed to create virtual sink {virtual_name}[/red]")
             sys.exit(1)
         console.print(f"[green]✓ Created virtual sink {virtual_name}[/green]")
-    
+
     # Move the sink input
     console.print(f"[blue]Moving stream to {virtual_name}...[/blue]")
     if move_sink_input_to_sink(sink_input_id, virtual_name):
         console.print(f"[green]✓ Successfully moved stream to {virtual_name}[/green]")
-        console.print(f"\n[dim]You can now capture with:[/dim]")
+        console.print("\n[dim]You can now capture with:[/dim]")
         console.print(f"[cyan]ffmpeg -f pulse -i {virtual_name}.monitor -ac 1 -ar 16000 output.wav[/cyan]")
     else:
         console.print(f"[red]Failed to move stream to {virtual_name}[/red]")
@@ -203,24 +261,24 @@ def route(sink_input_id: int, virtual_name: str, create_virtual: bool):
 def status():
     """Show system status and available tools."""
     console.print("[bold]Audio Detection System Status[/bold]\n")
-    
+
     # Check tools
     console.print("Tools:")
     console.print(f"  pactl: {'✓' if has_pactl() else '✗'}")
     console.print(f"  wpctl: {'✓' if has_wpctl() else '✗'}")
-    
+
     # Count streams
     streams = list_audio_streams()
     running = [s for s in streams if s.is_running]
     teams = [s for s in streams if s.is_teams]
     browsers = [s for s in streams if s.is_browser]
-    
-    console.print(f"\nStreams:")
+
+    console.print("\nStreams:")
     console.print(f"  Total: {len(streams)}")
     console.print(f"  Running: {len(running)}")
     console.print(f"  Teams: {len(teams)}")
     console.print(f"  Browsers: {len(browsers)}")
-    
+
     # Show virtual sinks
     try:
         result = subprocess.run(
@@ -233,7 +291,7 @@ def status():
         for line in result.stdout.split('\n'):
             if line.startswith('\tName: ') and 'null' in line.lower():
                 virtual_sinks.append(line.split(': ')[1])
-        
+
         console.print(f"\nVirtual Sinks: {len(virtual_sinks)}")
         for sink in virtual_sinks:
             console.print(f"  - {sink}")

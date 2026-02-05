@@ -17,11 +17,33 @@ Three systems for audio processing on Linux:
 
 ### Quick Start
 
+#### Option 1: UVX Standalone Tool (Recommended for Testing)
+
 ```bash
-# Clone and install
-git clone https://github.com/ChristianGeng/audio-capture.git
-cd audio-capture
-./install-daemon.sh
+# Install the CLI tool globally with UVX
+uvx git+https://github.com/ChristianGeng/audio-capture.git
+
+# Audio detection is now available everywhere!
+audio-detect list
+audio-detect suggest
+audio-detect status
+
+# Test with different detectors
+audio-detect list --detector pulse
+audio-detect list --detector hybrid
+
+# Show recording commands for Chrome
+audio-detect suggest --browser chrome
+```
+
+#### Option 2: UVX with Daemon (Full Service)
+
+```bash
+# Install CLI tool globally (same as above)
+uvx git+https://github.com/ChristianGeng/audio-capture.git
+
+# Install background daemon (optional)
+uvx git+https://github.com/ChristianGeng/audio-capture.git install-daemon.sh
 
 # Start detection
 audio-detect-service start
