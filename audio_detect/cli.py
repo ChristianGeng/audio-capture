@@ -171,7 +171,11 @@ def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg
 )
 def suggest(teams_only: bool, browser: str, detector: str):
     """Show ffmpeg capture commands for active streams."""
-    from .detectors import StateDetectorFactory
+    try:
+        from .detectors import StateDetectorFactory
+    except ImportError:
+        from audio_detect.detectors import StateDetectorFactory
+    
     streams = list_audio_streams(detector_type=detector)
     state_detector = StateDetectorFactory.create_detector(detector)
 

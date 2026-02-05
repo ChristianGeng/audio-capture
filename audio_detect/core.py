@@ -329,18 +329,22 @@ def _extract_sink_name(output: str, sink_id: int) -> str:
 
 def list_audio_streams(detector_type: str = 'pulse') -> list[AudioStream]:
     """List all active audio streams using specified detector."""
-    from .detectors import StateDetectorFactory
-
+    try:
+        from .detectors import StateDetectorFactory
+    except ImportError:
+        # Fallback if detectors module not available
+        from audio_detect.detectors import StateDetectorFactory
+    
     # Get streams from PulseAudio
     pactl_streams = list_sink_inputs_pactl()
     wpctl_streams = list_streams_wpctl()
     streams = merge_stream_data(pactl_streams, wpctl_streams)
-
+    
     # Apply state detection
     detector = StateDetectorFactory.create_detector(detector_type)
     for stream in streams:
         stream.update_state(detector)
-
+    
     return streams
 
 
