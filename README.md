@@ -21,7 +21,7 @@ Three systems for audio processing on Linux:
 
 ```bash
 # Install the CLI tool globally with UVX
-uvx git+https://github.com/ChristianGeng/audio-capture.git
+uvx --from git+https://github.com/ChristianGeng/audio-capture.git audio-detect
 
 # Audio detection is now available everywhere!
 audio-detect list
@@ -40,10 +40,10 @@ audio-detect suggest --browser chrome
 
 ```bash
 # Install CLI tool globally (same as above)
-uvx git+https://github.com/ChristianGeng/audio-capture.git
+uvx --from git+https://github.com/ChristianGeng/audio-capture.git audio-detect
 
 # Install background daemon (optional)
-uvx git+https://github.com/ChristianGeng/audio-capture.git install-daemon.sh
+uvx --from git+https://github.com/ChristianGeng/audio-capture.git install-daemon.sh
 
 # Start detection
 audio-detect-service start

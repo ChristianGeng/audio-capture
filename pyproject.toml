@@ -5,20 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "audio-stream-transcriber"
 version = "0.1.0"
-description = "Real-time audio streaming to Whisper MCP for live transcription"
+description = "Audio stream detection and capture tools"
 authors = [{name = "Christian Geng"}]
 dependencies = [
-    "mcp>=1.17.0",
-    "numpy",
-    "python-dotenv",
     "typer[all]",
     "rich",
-    "pyannote-audio>=4.0.3",
-    "torch>=2.8.0",
-    "torchvision>=0.23.0",
-    "torchaudio>=2.8.0",
     "pyyaml",
     "pyperclip",
+    "click",
 ]
 requires-python = ">=3.10"
 
