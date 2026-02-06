@@ -18,6 +18,7 @@ from .core import (
     move_sink_input_to_sink,
     shorten_sink_name,
 )
+from .detectors import BrowserStateDetector
 
 console = Console()
 
@@ -161,7 +162,7 @@ def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg
         table.add_row(*row)
 
     console.print(table)
-    
+
     # Add generic ffmpeg example for the first stream
     if streams and format == "table":
         first_stream = streams[0]
@@ -188,7 +189,7 @@ def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg
 def suggest(teams_only: bool, browser: str, detector: str):
     """Show ffmpeg capture commands for active streams."""
     streams = list_audio_streams(detector_type=detector)
-    
+
     # Simple active filter - just check if state is RUNNING
     active_streams = [s for s in streams if s.state == 'RUNNING']
 
@@ -256,6 +257,87 @@ def route(sink_input_id: int, virtual_name: str, create_virtual: bool):
     else:
         console.print(f"[red]Failed to move stream to {virtual_name}[/red]")
         sys.exit(1)
+
+
+@cli.command()
+@click.option(
+    "--port",
+    default=9222,
+    type=int,
+    help="Chrome remote debugging port",
+)
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["table", "json"], case_sensitive=False),
+    default="table",
+    help="Output format",
+)
+def tabs(port: int, fmt: str):
+    """List Chrome tabs and their audio playback state.
+
+    Requires Chrome running with --remote-debugging-port.
+    """
+    detector = BrowserStateDetector(debug_port=port)
+    tab_list = detector.list_tabs(with_audio_state=True)
+
+    if not tab_list:
+        console.print(
+            "[yellow]No Chrome tabs found.[/yellow]\n"
+            "[dim]Start Chrome with: "
+            "google-chrome --remote-debugging-port=9222[/dim]"
+        )
+        return
+
+    if fmt == "json":
+        data = []
+        for tab in tab_list:
+            entry = {
+                "id": tab.id,
+                "title": tab.title,
+                "url": tab.url,
+                "audio_state": tab.audio_state,
+                "has_audio": tab.has_audio,
+                "media_elements": tab.media_elements,
+            }
+            data.append(entry)
+        console.print(json.dumps(data, indent=2))
+        return
+
+    table = Table(title="Chrome Tabs")
+    table.add_column("Audio", style="bold", no_wrap=True)
+    table.add_column("Title", style="magenta")
+    table.add_column("URL", style="blue", max_width=60)
+    table.add_column("Media", style="dim")
+
+    state_icons = {
+        "playing": "[bold green]\u266b playing[/bold green]",
+        "muted": "[yellow]\u266b muted[/yellow]",
+        "paused": "[dim]\u23f8 paused[/dim]",
+        "silent": "[dim]- silent[/dim]",
+        "error": "[red]? error[/red]",
+        "unknown": "[dim]? unknown[/dim]",
+    }
+
+    for tab in tab_list:
+        icon = state_icons.get(tab.audio_state, tab.audio_state)
+        media_info = ""
+        if tab.media_elements:
+            count = len(tab.media_elements)
+            playing = sum(
+                1 for e in tab.media_elements
+                if not e.get("paused", True)
+            )
+            media_info = (
+                f"{playing}/{count} playing"
+                if playing
+                else f"{count} paused"
+            )
+
+        url_short = tab.url[:57] + "..." if len(tab.url) > 60 else tab.url
+        table.add_row(icon, tab.title[:50], url_short, media_info)
+
+    console.print(table)
 
 
 @cli.command()
