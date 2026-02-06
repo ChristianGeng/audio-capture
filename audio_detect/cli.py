@@ -1,9 +1,11 @@
 """Click CLI for audio stream detection."""
 
+import asyncio
 import json
 import subprocess
 import sys
 import time
+from datetime import datetime
 
 import click
 from rich.console import Console
@@ -19,6 +21,7 @@ from .core import (
     shorten_sink_name,
 )
 from .detectors import BrowserStateDetector
+from .teams_tracker import TeamsTracker
 
 console = Console()
 
@@ -338,6 +341,114 @@ def tabs(port: int, fmt: str):
         table.add_row(icon, tab.title[:50], url_short, media_info)
 
     console.print(table)
+
+
+@cli.command()
+@click.option(
+    "--port",
+    default=9222,
+    type=int,
+    help="Chrome remote debugging port",
+)
+@click.option(
+    "--interval",
+    default=2.0,
+    type=float,
+    help="Seconds between polls",
+)
+@click.option(
+    "--output", "-o",
+    default=None,
+    type=click.Path(),
+    help="JSONL output file (default: meeting_<timestamp>.jsonl)",
+)
+@click.option(
+    "--snapshot-interval",
+    default=120.0,
+    type=float,
+    help="Seconds between full-state snapshots (default: 120)",
+)
+@click.option(
+    "--speaker-debounce",
+    default=3,
+    type=int,
+    help="Consecutive polls before confirming a speaker (default: 3)",
+)
+def track(
+    port: int,
+    interval: float,
+    output: str | None,
+    snapshot_interval: float,
+    speaker_debounce: int,
+):
+    """Track a live Teams meeting: participants, speakers, events.
+
+    Polls the Teams tab via Chrome DevTools and logs changes to JSONL.
+    Requires Chrome running with --remote-debugging-port.
+    """
+    if output is None:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output = f"meeting_{ts}.jsonl"
+
+    tracker = TeamsTracker(
+        debug_port=port,
+        output_path=output,
+        speaker_debounce=speaker_debounce,
+    )
+    console.print(
+        f"[bold]Teams Meeting Tracker[/bold]  "
+        f"(poll every {interval}s, "
+        f"snapshots every {snapshot_interval:.0f}s → {output})"
+    )
+    console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+    def on_event(event: dict) -> None:
+        etype = event.get("type", "")
+        name = event.get("name", event.get("email", ""))
+        icons = {
+            "join": "[green]+[/green]",
+            "leave": "[red]-[/red]",
+            "speaker_start": "[bold green]\u266b[/bold green]",
+            "speaker_stop": "[dim]\u266b[/dim]",
+            "mute": "[yellow]\U0001f507[/yellow]",
+            "unmute": "[green]\U0001f50a[/green]",
+            "screen_share_start": "[cyan]\U0001f4bb[/cyan]",
+            "screen_share_stop": "[dim]\U0001f4bb[/dim]",
+        }
+        icon = icons.get(etype, "\u2022")
+        ts = event.get("ts", "")
+        # Show only time portion
+        time_str = ts.split("T")[1][:8] if "T" in ts else ts
+        console.print(f"  {time_str}  {icon} {etype:<20} {name}")
+
+    def on_snapshot(snapshot) -> None:
+        names = [p.name for p in snapshot.participants]
+        speakers = [
+            snapshot.participants[i].name
+            for i, email in enumerate(
+                p.email for p in snapshot.participants
+            )
+            if email in snapshot.speakers
+        ]
+        console.print(
+            f"\n[dim]--- snapshot "
+            f"({snapshot.call_duration}) "
+            f"| {len(names)} participants"
+            f"{' | speaking: ' + ', '.join(speakers) if speakers else ''}"
+            f" ---[/dim]\n"
+        )
+
+    try:
+        asyncio.run(
+            tracker.run(
+                interval=interval,
+                snapshot_interval=snapshot_interval,
+                on_event=on_event,
+                on_snapshot=on_snapshot,
+            )
+        )
+    except KeyboardInterrupt:
+        console.print(f"\n[bold]Stopped.[/bold] Events saved to {output}")
 
 
 @cli.command()
