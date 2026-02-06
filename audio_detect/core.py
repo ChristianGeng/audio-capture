@@ -209,6 +209,67 @@ def is_browser_stream(stream: dict) -> bool:
     return False
 
 
+def shorten_sink_name(sink_name: str) -> str:
+    """Shorten a long ALSA sink name to a human-readable label.
+
+    Example:
+        ``alsa_output.usb-C-Media_Electronics_Inc._USB_Audio_Device-00.analog-stereo``
+        becomes ``USB Audio Device (analog-stereo)``.
+    """
+    if not sink_name:
+        return sink_name
+
+    name = sink_name
+
+    # Strip common prefixes
+    for prefix in ("alsa_output.", "alsa_input."):
+        if name.startswith(prefix):
+            name = name[len(prefix):]
+            break
+
+    # Strip "usb-" or "pci-" transport prefix
+    for transport in ("usb-", "pci-"):
+        if name.startswith(transport):
+            name = name[len(transport):]
+            break
+
+    # Separate the profile suffix (e.g. ".analog-stereo", ".iec958-stereo")
+    profile = ""
+    for suffix in (
+        ".analog-stereo",
+        ".analog-mono",
+        ".iec958-stereo",
+        ".hdmi-stereo",
+        ".multichannel",
+    ):
+        if name.endswith(suffix):
+            profile = suffix.lstrip(".")
+            name = name[: -len(suffix)]
+            break
+
+    # Strip trailing device index like "-00"
+    if re.match(r".*-\d{2}$", name):
+        name = name[:-3]
+
+    # Replace underscores/hyphens with spaces, collapse vendor noise
+    name = name.replace("_", " ").replace("-", " ")
+    # Collapse multiple spaces
+    name = re.sub(r"\s+", " ", name).strip()
+
+    # Remove common vendor prefixes that add noise
+    for vendor in (
+        "C Media Electronics Inc. ",
+        "C Media Electronics Inc ",
+    ):
+        if name.startswith(vendor):
+            name = name[len(vendor):]
+            break
+
+    if profile:
+        return f"{name} ({profile})"
+    return name
+
+
 def get_monitor_source(sink_name: str) -> str:
     """Get the monitor source name for a sink."""
     return f"{sink_name}.monitor"

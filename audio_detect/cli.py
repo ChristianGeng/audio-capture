@@ -16,6 +16,7 @@ from .core import (
     has_wpctl,
     list_audio_streams,
     move_sink_input_to_sink,
+    shorten_sink_name,
 )
 
 console = Console()
@@ -52,7 +53,8 @@ def cli():
 )
 @click.option("--show-ffmpeg", is_flag=True, help="Include ffmpeg commands")
 @click.option("--show-ids", is_flag=True, help="Show sink input IDs")
-def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg: bool, show_ids: bool):
+@click.option("--wide", is_flag=True, help="Show full sink names instead of shortened")
+def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg: bool, show_ids: bool, wide: bool):
     """List active audio streams."""
     streams = list_audio_streams(detector_type=detector)
 
@@ -108,6 +110,7 @@ def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg
         table.add_column("Teams?", style="red")
 
     for stream in streams:
+        is_active = stream.state == 'RUNNING'
         state_style = {
             'RUNNING': 'green',
             'CORKED': 'yellow',
@@ -125,12 +128,25 @@ def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg
                 minutes_ago = seconds_ago // 60
                 activity_info = f" ({minutes_ago}m ago)"
 
+        # Shorten sink name unless --wide is set
+        sink_display = (
+            stream.sink_name if wide
+            else shorten_sink_name(stream.sink_name)
+        )
+
+        # Highlight active streams
+        id_display = (
+            f"[bold green]>>> {stream.id}[/bold green]"
+            if is_active
+            else str(stream.id)
+        )
+
         row = [
-            str(stream.id),
+            id_display,
             f"[{state_style}]{stream.state}[/{state_style}]{activity_info}",
             stream.application,
             stream.media,
-            stream.sink_name,  # Show full sink name for copy-paste
+            sink_display,
             stream.volume
         ]
 
@@ -140,7 +156,7 @@ def list(teams_only: bool, browser: str, detector: str, format: str, show_ffmpeg
             cmd = generate_ffmpeg_command(stream.monitor)
             row.append(cmd[:47] + "..." if len(cmd) > 50 else cmd)
         if teams_only or browser != "all":
-            row.append("✓" if stream.is_teams else "-")
+            row.append("\u2713" if stream.is_teams else "-")
 
         table.add_row(*row)
 
