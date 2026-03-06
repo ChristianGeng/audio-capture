@@ -14,13 +14,14 @@ dependencies = [
     "pyperclip",
     "click",
     "websockets",
+    "audeer",
+    "audformat",
+    "faster-whisper",
 ]
 requires-python = ">=3.10"
 
 [project.scripts]
-audio-stream = "audio_stream_transcriber.cli:app"
 audio-detect = "audio_detect.cli:cli"
-audio-detect-daemon = "audio_detect_daemon:main"
 
 [tool.ruff]
 line-length = 88
