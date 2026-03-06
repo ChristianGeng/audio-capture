@@ -44,3 +44,5 @@ transcription.txt
 # OS
 .DS_Store
 Thumbs.db
+# recordings
+recordings/*
