@@ -21,6 +21,7 @@ from .core import (
     shorten_sink_name,
 )
 from .detectors import BrowserStateDetector
+from .recorder import MeetingRecorder
 from .teams_tracker import TeamsTracker
 
 console = Console()
@@ -352,9 +353,9 @@ def tabs(port: int, fmt: str):
 )
 @click.option(
     "--interval",
-    default=2.0,
+    default=1.5,
     type=float,
-    help="Seconds between polls",
+    help="Seconds between polls (default: 1.5)",
 )
 @click.option(
     "--output", "-o",
@@ -414,12 +415,35 @@ def track(
             "unmute": "[green]\U0001f50a[/green]",
             "screen_share_start": "[cyan]\U0001f4bb[/cyan]",
             "screen_share_stop": "[dim]\U0001f4bb[/dim]",
+            "chat_message": "[blue]\U0001f4ac[/blue]",
+            "file_shared": "[magenta]\U0001f4ce[/magenta]",
+            "system_message": "[dim]\u2139[/dim]",
         }
         icon = icons.get(etype, "\u2022")
         ts = event.get("ts", "")
-        # Show only time portion
         time_str = ts.split("T")[1][:8] if "T" in ts else ts
-        console.print(f"  {time_str}  {icon} {etype:<20} {name}")
+
+        if etype == "chat_message":
+            author = event.get("author", "")
+            text = event.get("text", "")[:80]
+            console.print(
+                f"  {time_str}  {icon} {author}: {text}"
+            )
+        elif etype == "file_shared":
+            author = event.get("author", "")
+            fname = event.get("filename", "")[:60]
+            console.print(
+                f"  {time_str}  {icon} {author} shared: {fname}"
+            )
+        elif etype == "system_message":
+            text = event.get("text", "")[:80]
+            console.print(
+                f"  {time_str}  {icon} [dim]{text}[/dim]"
+            )
+        else:
+            console.print(
+                f"  {time_str}  {icon} {etype:<20} {name}"
+            )
 
     def on_snapshot(snapshot) -> None:
         names = [p.name for p in snapshot.participants]
@@ -449,6 +473,202 @@ def track(
         )
     except KeyboardInterrupt:
         console.print(f"\n[bold]Stopped.[/bold] Events saved to {output}")
+
+
+@cli.command()
+@click.option(
+    "--port",
+    default=9222,
+    type=int,
+    help="Chrome remote debugging port",
+)
+@click.option(
+    "--monitor", "-m",
+    default=None,
+    help="PulseAudio monitor source (auto-detected if omitted)",
+)
+@click.option(
+    "--sample-rate",
+    default=48000,
+    type=int,
+    help="Audio sample rate in Hz (default: 48000)",
+)
+@click.option(
+    "--bit-depth",
+    default=24,
+    type=click.Choice(["16", "24", "32"]),
+    help="Audio bit depth (default: 24)",
+)
+@click.option(
+    "--volume-boost",
+    default=0.0,
+    type=float,
+    help="Volume boost in dB applied during recording (e.g. 6)",
+)
+@click.option(
+    "--set-volume",
+    is_flag=True,
+    help="Auto-set PulseAudio sink volume to 100%% before recording",
+)
+@click.option(
+    "--interval",
+    default=1.5,
+    type=float,
+    help="Tracker poll interval in seconds (default: 1.5)",
+)
+@click.option(
+    "--output-dir", "-o",
+    default=None,
+    type=click.Path(),
+    help="Output directory (default: meeting_<timestamp>/)",
+)
+@click.option(
+    "--snapshot-interval",
+    default=120.0,
+    type=float,
+    help="Seconds between full-state snapshots",
+)
+@click.option(
+    "--speaker-debounce",
+    default=3,
+    type=int,
+    help="Consecutive polls before confirming a speaker",
+)
+def record(
+    port: int,
+    monitor: str | None,
+    sample_rate: int,
+    bit_depth: str,
+    volume_boost: float,
+    set_volume: bool,
+    interval: float,
+    output_dir: str | None,
+    snapshot_interval: float,
+    speaker_debounce: int,
+):
+    """Record audio and track a Teams meeting simultaneously.
+
+    Starts ffmpeg capture and the Teams tracker in parallel.
+    Both share a common start timestamp so events align to the audio.
+    Output: audio.wav + events.jsonl + meta.json in one directory.
+    """
+    if output_dir is None:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = f"meeting_{ts}"
+
+    recorder = MeetingRecorder(
+        output_dir=output_dir,
+        monitor_source=monitor,
+        sample_rate=sample_rate,
+        bit_depth=int(bit_depth),
+        volume_boost_db=volume_boost,
+        set_volume=set_volume,
+        debug_port=port,
+        poll_interval=interval,
+        snapshot_interval=snapshot_interval,
+        speaker_debounce=speaker_debounce,
+    )
+
+    def on_start(meta: dict) -> None:
+        console.print("[bold]Meeting Recorder[/bold]")
+        console.print(
+            f"  Output:  [cyan]{meta['output_dir']}/[/cyan]"
+        )
+        audio_info = (
+            f"  Audio:   {meta['bit_depth']}-bit / "
+            f"{meta['sample_rate']}Hz"
+        )
+        boost = meta.get("volume_boost_db")
+        if boost:
+            audio_info += f" / +{boost}dB"
+        console.print(audio_info)
+        vol = meta.get('sink_volume_pct')
+        vol_style = (
+            "[green]" if vol and vol >= 80
+            else "[yellow]" if vol
+            else "[dim]"
+        )
+        console.print(
+            f"  Volume:  {vol_style}"
+            f"{vol}%{'[/]' if vol else 'unknown[/]'}"
+        )
+        console.print(
+            f"  Monitor: [dim]{meta['monitor_source']}[/dim]"
+        )
+        console.print(
+            f"  Started: {meta['start_time']}"
+        )
+        console.print("[dim]Press Ctrl+C to stop[/dim]\n")
+
+    def on_event(event: dict) -> None:
+        etype = event.get("type", "")
+        name = event.get("name", event.get("email", ""))
+        icons = {
+            "join": "[green]+[/green]",
+            "leave": "[red]-[/red]",
+            "speaker_start": "[bold green]\u266b[/bold green]",
+            "speaker_stop": "[dim]\u266b[/dim]",
+            "mute": "[yellow]\U0001f507[/yellow]",
+            "unmute": "[green]\U0001f50a[/green]",
+            "screen_share_start": "[cyan]\U0001f4bb[/cyan]",
+            "screen_share_stop": "[dim]\U0001f4bb[/dim]",
+            "chat_message": "[blue]\U0001f4ac[/blue]",
+            "file_shared": "[magenta]\U0001f4ce[/magenta]",
+            "system_message": "[dim]\u2139[/dim]",
+        }
+        icon = icons.get(etype, "\u2022")
+        ts = event.get("ts", "")
+        time_str = ts.split("T")[1][:8] if "T" in ts else ts
+
+        if etype == "chat_message":
+            author = event.get("author", "")
+            text = event.get("text", "")[:80]
+            console.print(
+                f"  {time_str}  {icon} {author}: {text}"
+            )
+        elif etype == "file_shared":
+            author = event.get("author", "")
+            fname = event.get("filename", "")[:60]
+            console.print(
+                f"  {time_str}  {icon} {author} shared: {fname}"
+            )
+        elif etype == "system_message":
+            text = event.get("text", "")[:80]
+            console.print(
+                f"  {time_str}  {icon} [dim]{text}[/dim]"
+            )
+        else:
+            console.print(
+                f"  {time_str}  {icon} {etype:<20} {name}"
+            )
+
+    def on_snapshot(snapshot) -> None:
+        names = [p.name for p in snapshot.participants]
+        speaker_names = [
+            p.name for p in snapshot.participants
+            if p.email in snapshot.speakers
+        ]
+        console.print(
+            f"\n[dim]--- snapshot "
+            f"({snapshot.call_duration}) "
+            f"| {len(names)} participants"
+            f"{' | speaking: ' + ', '.join(speaker_names) if speaker_names else ''}"
+            f" ---[/dim]\n"
+        )
+
+    try:
+        asyncio.run(
+            recorder.run(
+                on_start=on_start,
+                on_event=on_event,
+                on_snapshot=on_snapshot,
+            )
+        )
+    except KeyboardInterrupt:
+        console.print(
+            f"\n[bold]Stopped.[/bold] "
+            f"Recording saved to [cyan]{output_dir}/[/cyan]"
+        )
 
 
 @cli.command()

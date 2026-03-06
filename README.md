@@ -1,311 +1,270 @@
-# Audio Capture & Transcription Systems
+# Audio Capture — Teams Meeting Recorder & Tracker
 
-Three systems for audio processing on Linux:
+Record audio and track Microsoft Teams meeting metadata (participants,
+speakers, join/leave events) from a single CLI command. Uses the Chrome
+DevTools Protocol to poll the Teams web UI for real-time state.
 
-## ⭐ System 1: Audio Stream Detection Service (NEW - Recommended)
+## Prerequisites
 
-**Background monitoring with desktop notifications for Teams, YouTube, and custom patterns.**
+- **Linux** with PulseAudio or PipeWire
+- **Google Chrome** (or Chromium)
+- **ffmpeg** on PATH
+- **Python >= 3.10** with [uv](https://docs.astral.sh/uv/)
 
-### Features
-
-- **Background Monitoring**: Runs as system service, detects audio streams automatically
-- **Desktop Notifications**: Modern notifications with ready-to-use ffmpeg commands
-- **Configurable Patterns**: Teams, YouTube, and custom detection patterns
-- **Non-Invasive**: Never modifies audio routing - read-only monitoring
-- **Clipboard Integration**: Auto-copies ffmpeg commands to clipboard
-- **Home Directory**: All files stored in user home directory (no sudo needed)
-
-### Quick Start
-
-#### Option 1: UVX Standalone Tool (Recommended for Testing)
+## Installation
 
 ```bash
-# Install the CLI tool globally with UVX
-uvx --from git+https://github.com/ChristianGeng/audio-capture.git audio-detect
-
-# Audio detection is now available everywhere!
-audio-detect list
-audio-detect suggest
-audio-detect status
-
-# Test with different detectors
-audio-detect list --detector pulse
-audio-detect list --detector hybrid
-
-# Show recording commands for Chrome
-audio-detect suggest --browser chrome
+git clone https://github.com/ChristianGeng/audio-capture.git
+cd audio-capture
+uv sync
 ```
 
-#### Option 2: UVX with Daemon (Full Service)
+## Development Setup
+
+### 1. Start Chrome with the remote debugging port
+
+Close all existing Chrome windows first, then:
 
 ```bash
-# Install CLI tool globally (same as above)
-uvx --from git+https://github.com/ChristianGeng/audio-capture.git audio-detect
-
-# Install background daemon (optional)
-uvx --from git+https://github.com/ChristianGeng/audio-capture.git install-daemon.sh
-
-# Start detection
-audio-detect-service start
-
-# Check status
-audio-detect-service status
-
-# Configure patterns
-audio-detect-service config
+google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug
 ```
 
-### How It Works
-
-1. **Daemon monitors** PulseAudio/PipeWire for audio streams every 2 seconds
-2. **Pattern Matching** against Teams, YouTube, and custom patterns
-3. **Desktop Notification** with ffmpeg command sent when match found
-4. **Auto-Copy** command to clipboard for easy pasting
-5. **Organized Storage** in `~/AudioCaptures/teams/`, `~/AudioCaptures/youtube/`, etc.
-
-### Usage Examples
+### 2. Verify the debug port is accessible
 
 ```bash
-# Start/stop service
-audio-detect-service start
-audio-detect-service stop
-
-# Enable auto-start on login
-audio-detect-service enable
-
-# View logs
-audio-detect-service logs
-
-# Test detection
-audio-detect-service test
-
-# Edit configuration
-audio-detect-service config
+curl http://localhost:9222/json/version
 ```
 
-### Configuration
+You should see JSON with Chrome version info. If you get
+"Connection refused", Chrome is not running with the debug port.
 
-Edit `~/.config/audio-detect/config.yaml`:
+### 3. Open Teams in the debug Chrome
 
-```yaml
-targets:
-  teams:
-    enabled: true
-    patterns:
-      - "microsoft teams"
-      - "teams.microsoft.com"
-  youtube:
-    enabled: true
-    patterns:
-      - "youtube"
-  custom:
-    enabled: true
-    patterns:
-      - "spotify"
-      - "zoom"
-```
+Navigate to <https://teams.microsoft.com> and join a meeting.
 
-### Installation with UVX
-
-The service uses `uvx` to run directly from the GitHub repository:
+### 4. Confirm the Teams tab is visible
 
 ```bash
-# System will automatically use the latest version from main branch
-systemctl --user start audio-detect-daemon
+uv run audio-detect tabs
 ```
 
-## ⭐ System 2: Automatic Teams Meeting Recorder (Legacy)
+This lists all Chrome tabs and their audio state.
 
-**Zero-intervention audio recording for Microsoft Teams meetings.**
+## CLI Commands
 
-### Features
+### `audio-detect list`
 
-- **Fully Automatic**: Detects Teams meetings and records with zero user intervention
-- **No Manual Routing**: No pavucontrol, no GUI, no setup needed
-- **Systemd Service**: Runs in background, starts on boot
-- **Simple**: ~100 lines of Python vs 415 in manual systems
-- **Extensible**: Future Chrome extension support for meeting metadata
-
-### Quick Start
+List active PulseAudio/PipeWire audio streams:
 
 ```bash
-# Install
-./install-recorder.sh
-
-# Check status
-sudo systemctl status teams-auto-recorder
-
-# View logs
-journalctl -u teams-auto-recorder -f
-
-# View recordings
-ls -lh /var/log/teams-audio/
+uv run audio-detect list            # compact table
+uv run audio-detect list --wide     # full sink names
+uv run audio-detect list --json     # JSON output
 ```
 
-### How It Works
+### `audio-detect tabs`
 
-1. **Daemon monitors** PulseAudio for Teams audio streams
-2. **Auto-detects** when Teams meeting starts
-3. **Records** to `/var/log/teams-audio/meeting_YYYY-MM-DD_HH-MM-SS.wav`
-4. **Stops** automatically 30 seconds after meeting ends
-5. **Runs forever** as systemd service
-
-### Post-Processing (Optional)
+List Chrome tabs and their media playback state:
 
 ```bash
-# Transcribe all recordings
-python process_recordings.py
-
-# Transcripts saved as .txt files
-cat /var/log/teams-audio/meeting_*.txt
+uv run audio-detect tabs
 ```
 
-### Architecture
+### `audio-detect track`
 
-See [ADR-0001](docs/adr/0001-simplify-teams-audio-capture.md) for design decisions.
-
-**Future Extension**: Chrome extension will add meeting metadata (title, participants, chat) without modifying audio recording code.
-
----
-
-## 🎯 System 2: Chrome Tab Diarization & Transcription
-
-Capture audio from a **specific Chrome tab**, identify speakers, and create speaker-attributed transcripts.
-
-
-### Features
-
-- **Chrome Tab Isolation**: Capture audio from specific Chrome tabs (not system-wide)
-- **Speaker Diarization**: Identify who spoke when using pyannote.audio
-- **Speaker-Attributed Transcripts**: Output showing "SPEAKER_01: Hello..." etc.
-- **PulseAudio Integration**: Uses virtual sinks for audio routing
-
-
-### Setup
-
-1. **Install dependencies**:
-   ```bash
-   uv sync  # Includes pyannote.audio, torch, etc.
-   ```
-
-2. **Set up HuggingFace token** (for pyannote models):
-   ```bash
-   export HUGGINGFACE_TOKEN=your_huggingface_token
-   # Get token from: https://huggingface.co/settings/tokens
-   ```
-
-
-### Usage
-
-#### Complete Workflow (Recommended)
+Track a live Teams meeting without audio recording.
+Polls the Teams tab DOM and writes change events to JSONL:
 
 ```bash
-# One-command setup, capture, and process
-python chrome_tab_diarizer.py workflow --duration 60
+uv run audio-detect track
+uv run audio-detect track --interval 1.5 --output meeting.jsonl
 ```
 
-#### Step-by-Step Usage
+Options:
+
+- `--interval` — seconds between DOM polls (default: 1.5)
+- `--snapshot-interval` — seconds between full-state snapshots (default: 120)
+- `--speaker-debounce` — consecutive polls before confirming speaker (default: 3)
+- `--output` / `-o` — JSONL output file
+
+### `audio-detect record`
+
+Record audio **and** track the meeting simultaneously.
+Runs ffmpeg and the Teams tracker in parallel with a shared start timestamp:
 
 ```bash
-# 1. Set up virtual sink for Chrome tab isolation
-python chrome_tab_diarizer.py setup
-
-# 2. Manually route Chrome audio in pavucontrol, then capture
-python chrome_tab_diarizer.py capture --duration 30
-
-# 3. Process captured audio with diarization
-python chrome_tab_diarizer.py process path/to/audio.wav
+uv run audio-detect record
+uv run audio-detect record --set-volume --bit-depth 24
+uv run audio-detect record --volume-boost 6 --sample-rate 24000
 ```
 
+Options:
 
-### How It Works
+- `--bit-depth` — 16, 24, or 32 (default: 24)
+- `--sample-rate` — Hz (default: 48000)
+- `--volume-boost` — dB boost applied during capture (default: 0)
+- `--set-volume` — auto-set PulseAudio sink to 100% before recording
+- `--monitor` / `-m` — PulseAudio monitor source (auto-detected)
+- `--output-dir` / `-o` — output directory (default: `meeting_<timestamp>/`)
+- `--interval` — tracker poll interval (default: 1.5)
+- `--snapshot-interval` — full snapshot interval (default: 120)
 
-1. **Virtual Sink Creation**: Creates a PulseAudio virtual sink for Chrome tab isolation
-2. **Audio Routing**: Use `pavucontrol` to route specific Chrome tab audio to the virtual sink
-3. **Capture**: Record audio from the virtual sink monitor
-4. **Diarization**: Use pyannote.audio to identify speakers and timestamps
-5. **Transcription**: Use Whisper MCP to transcribe the audio
-6. **Combination**: Merge transcription with diarization for speaker-attributed output
+Output directory:
 
-
-### Requirements
-
-- **HuggingFace Token**: For pyannote speaker diarization models
-- **PulseAudio**: For virtual sink audio routing
-- **pavucontrol**: GUI tool for audio routing (`sudo apt install pavucontrol`)
-
-
-### Output Format
-
-```text
-🎤 Chrome Tab Audio Analysis Complete!
-File: chrome_tab_capture_1234567890.wav
-Transcription: 2456 chars
-Speakers detected: 2
-
-📝 Speaker-Attributed Transcript:
-
-**SPEAKER_01:** Hello, welcome to our meeting today.
-
-**SPEAKER_02:** Thank you for joining. Let's discuss the project timeline.
-
-**SPEAKER_01:** I think we should focus on the key deliverables first...
+```
+meeting_20260206_113500/
+├── audio.wav          # raw audio capture (24-bit / 48kHz)
+├── events.jsonl       # timestamped meeting events
+└── meta.json          # shared metadata for alignment
 ```
 
+### `audio-detect suggest`
 
----
-
-## 🎤 System 3: Real-time Audio Streaming (Original)
-
-The original real-time streaming system for continuous transcription.
-
-
-### Features
-
-- **Real-time streaming**: Continuous transcription without file saving
-- **Low latency**: ~2 second delay from speech to text
-- **Thread-safe**: Concurrent audio capture and transcription
-
-
-### Usage
+Show ffmpeg recording commands for detected streams:
 
 ```bash
-# Start real-time transcription
-audio-stream start --chunk-duration 3 --overlap 0.5
+uv run audio-detect suggest
 ```
 
+### `audio-detect status`
 
----
+Show system status (tools, streams, virtual sinks):
 
-## Choosing the Right System
+```bash
+uv run audio-detect status
+```
 
-| Use Case | Recommended System |
-|----------|--------------------|
-| **Background monitoring with notifications** | ⭐ Audio Stream Detection Service (System 1) |
-| **Zero-intervention background recording** | ⭐ Teams Auto-Recorder (System 2) |
-| **Manual tab isolation + diarization** | Chrome Tab Diarizer (System 3) |
-| **Live meetings** needing real-time transcription | Real-time Streaming (System 4) |
-| **Podcasts/Interviews** from browser | Chrome Tab Diarization (System 3) |
-| **Research interviews** needing attribution | Chrome Tab Diarization (System 3) |
+## Output Formats
 
+### events.jsonl
 
-## Common Issues
+One JSON object per line. Event types:
 
-### Chrome Tab Audio Not Capturing
+| Type | Description |
+|------|-------------|
+| `join` | Participant appeared in the meeting |
+| `leave` | Participant left the meeting |
+| `speaker_start` | Participant started speaking (debounced) |
+| `speaker_stop` | Participant stopped speaking |
+| `mute` / `unmute` | Participant muted or unmuted |
+| `screen_share_start` / `screen_share_stop` | Screen sharing toggled |
+| `chat_message` | New chat message (text, links, files) |
+| `file_shared` | File attachment shared in chat |
+| `system_message` | System message (e.g. "Meeting started") |
+| `snapshot` | Periodic full-state snapshot |
 
-1. Run `python chrome_tab_diarizer.py setup` to create virtual sink
-2. Open `pavucontrol` → Playback tab
-3. Find your Chrome tab → Change output to "Chrome_Tab_Audio"
-4. Start playing audio in Chrome tab
+**Note**: Chat tracking requires the chat panel to be open in Teams
+during the meeting. If closed, chat events are silently skipped.
 
-### Diarization Fails
+Examples:
 
-1. Set `HUGGINGFACE_TOKEN` environment variable
-2. Ensure internet connection (models download ~500MB)
-3. Falls back to placeholder diarization if models unavailable
+```json
+{"ts": "2026-02-06T10:49:30+00:00", "type": "speaker_start", "email": "jwagner@audeering.com", "name": "Johannes Wagner"}
+{"ts": "2026-02-06T11:01:36+00:00", "type": "chat_message", "message_ts": "2026-02-06T11:01:36.622Z", "author": "Dionyssos Kounadis-Bastian", "text": "Here is the file", "files": ["recording.wav"]}
+{"ts": "2026-02-06T11:01:36+00:00", "type": "file_shared", "message_ts": "2026-02-06T11:01:36.622Z", "author": "Dionyssos Kounadis-Bastian", "filename": "recording.wav"}
+```
 
-### Audio Quality Issues
+### meta.json
 
-- Use 16kHz sample rate for better diarization
-- Ensure Chrome tab is the only audio source in virtual sink
-- Close other applications using the virtual sink
+Shared metadata for aligning events to the audio waveform:
+
+```json
+{
+  "start_time": "2026-02-06T10:49:02+00:00",
+  "end_time": "2026-02-06T10:57:30+00:00",
+  "duration_seconds": 508.0,
+  "monitor_source": "alsa_output.usb-...analog-stereo.monitor",
+  "sample_rate": 48000,
+  "channels": 1,
+  "bit_depth": 24,
+  "volume_boost_db": 0.0,
+  "sink_volume_pct": 86
+}
+```
+
+To align an event to the audio: `offset_seconds = event_ts - start_time`.
+
+## Polling Frequency & Accuracy
+
+The tracker polls the Teams DOM via Chrome DevTools Protocol.
+Each poll takes approximately **6 ms** (WebSocket connect + JS injection +
+response), so even very high poll rates have negligible CPU impact.
+
+| Interval | Polls/sec | Duty cycle | Use case |
+|----------|-----------|------------|----------|
+| 0.125s | 8/sec | ~4.8% | Maximum resolution diarization |
+| 0.25s | 4/sec | ~2.4% | High-resolution diarization |
+| 0.5s | 2/sec | ~1.2% | Fine-grained speaker tracking |
+| **1.5s** | **0.7/sec** | **~0.4%** | **Default — good balance** |
+| 2.0s | 0.5/sec | ~0.3% | Low overhead |
+| 5.0s | 0.2/sec | ~0.1% | Minimal — join/leave only |
+
+Examples:
+
+```bash
+# 8 polls/sec — best possible speaker timing (~125ms resolution)
+uv run audio-detect record --interval 0.125 --speaker-debounce 8
+
+# 4 polls/sec — high resolution (~250ms)
+uv run audio-detect record --interval 0.25 --speaker-debounce 6
+
+# Default — 1.5s interval, good for most meetings
+uv run audio-detect record
+```
+
+When using fast polling, increase `--speaker-debounce` proportionally
+to keep the debounce window roughly the same (~3-4 seconds):
+
+| Interval | Recommended debounce | Debounce window |
+|----------|---------------------|-----------------|
+| 0.125s | 24–32 | 3–4s |
+| 0.25s | 12–16 | 3–4s |
+| 0.5s | 6–8 | 3–4s |
+| 1.0s | 3–4 | 3–4s |
+| **1.5s** | **3** | **4.5s** |
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| `--interval` | 1.5s | DOM poll frequency. Lower = finer resolution. |
+| `--speaker-debounce` | 3 polls | Consecutive polls before confirming speaker. |
+| `--snapshot-interval` | 120s | Full participant state dump. |
+
+**Timestamp accuracy**: Event timestamps use `datetime.now(UTC)` and are
+accurate to the poll interval. At 8 polls/sec, speaker transitions are
+captured within ~125 ms. The audio file starts at the exact `start_time`
+in `meta.json`.
+
+**Recommended defaults**: 1.5s interval with 3-poll debounce gives a good
+balance between responsiveness and noise filtering. For detailed diarization,
+use `--interval 0.25 --speaker-debounce 12`.
+
+## Audio Quality
+
+| Bit depth | Dynamic range | Use case |
+|-----------|---------------|----------|
+| 16-bit | 96 dB | Small files, speech-only |
+| **24-bit** | **144 dB** | **Default — no clipping risk** |
+| 32-bit | 192 dB | Archival |
+
+24-bit at 48kHz is the default. This gives 144 dB of dynamic range,
+which makes clipping from quantization virtually impossible for meeting
+audio. The only clipping risk is if `--volume-boost` is set too high on
+already-loud audio.
+
+## Architecture
+
+```
+audio_detect/
+├── cli.py            # Click CLI commands
+├── core.py           # PulseAudio stream detection
+├── detectors.py      # Audio state detectors (PulseAudio, Browser)
+├── recorder.py       # Unified recorder (ffmpeg + tracker)
+└── teams_tracker.py  # Teams DOM polling via Chrome DevTools Protocol
+```
+
+The tracker injects JavaScript into the Teams tab via WebSocket to read:
+
+- `data-is-speaking="true"` on voice level overlays
+- `aria-label` on participant tiles (name, muted, video state)
+- `data-tid` attributes for participant emails
+- `data-tid="call-duration"` for meeting duration
